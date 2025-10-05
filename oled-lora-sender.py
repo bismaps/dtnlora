@@ -60,9 +60,8 @@ gc.collect()
 print(f"Memori bebas setelah setup LoRa: {gc.mem_free()} bytes")
 
 
-# --- FASE 3: Jalankan Aplikasi DTN ---
-# Sekarang memori sudah lebih lega untuk memuat framework DTN
-print("Memuat framework DTN...")
+# --- FASE 3: Jalankan Aplikasi DTN (Logika Final yang Tangguh) ---
+print("Memuat framework DTN untuk Sender...")
 try:
     from dtn7zero.bundle_protocol_agent import BundleProtocolAgent
     from dtn7zero.configuration import CONFIGURATION
@@ -71,72 +70,84 @@ try:
     from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
     from dtn7zero.utility import get_current_clock_millis, is_timestamp_older_than_timeout
     gc.collect()
-    print(f"Memori bebas setelah impor DTN: {gc.mem_free()} bytes")
 
-    # Setup DTN
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
-    # Beri ruang yang cukup untuk menyimpan semua 100 bundle
     CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 25
-    # Naikkan juga batas ID yang diketahui untuk keamanan
     CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 30
 
     clas = {CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}
     storage = SimpleInMemoryStorage()
     router = SimpleEpidemicRouter(clas, storage)
-    bpa = BundleProtocolAgent('dtn://fixed-node/', storage, router) 
+    bpa = BundleProtocolAgent('dtn://fixed-node/', storage, router)
     sender_endpoint = LocalEndpoint('flood_alert')
     bpa.register_endpoint(sender_endpoint)
 
-    # Loop utama aplikasi
+    # Loop utama dengan jeda waktu dan pembersihan memori
     message_str = 'ID:{};TIME:{};LEVEL:{}'
     bundle_counter = 0
-    last_transmission = get_current_clock_millis()
+    last_transmission_time = 0
+    # Atur jeda antar bundle (misal: 3 detik untuk memberi waktu sinkronisasi)
+    TRANSMISSION_INTERVAL_MS = 3000 
+    
     display.text('LORA SENDER', 20, 0, 1)
     display.text('Tx Count:', 0, 20, 1)
-    display.text(str(bundle_counter), 90, 20, 1)
     display.show()
+    print('Sender LoRa dimulai dengan metode interval waktu...')
 
-    print('Sender LoRa dimulai...')
-    while True:
+    while bundle_counter < 20:
+        # Selalu jalankan update untuk proses latar belakang DTN
         bpa.update()
-        if bundle_counter < 20 and is_timestamp_older_than_timeout(last_transmission, 5000):
+
+        # Cek apakah sudah waktunya mengirim bundle berikutnya
+        if is_timestamp_older_than_timeout(last_transmission_time, TRANSMISSION_INTERVAL_MS):
             bundle_counter += 1
+            
+            # 1. Panggil garbage collector SEBELUM membuat objek baru
+            gc.collect()
+            print(f"Memori bebas: {gc.mem_free()} bytes")
 
-            # 1. Catat waktu kirim TEPAT SEBELUM mengirim
+            # 2. Buat dan kirim bundle baru
             sending_timestamp_ms = time.ticks_ms()
-
-            # 2. Masukkan timestamp ke dalam payload
             simulated_water_level = 150 + (bundle_counter % 50)
             payload_data = message_str.format(
-                bundle_counter, 
-                sending_timestamp_ms, # Timestamp dimasukkan di sini
+                bundle_counter,
+                sending_timestamp_ms,
                 simulated_water_level
             ).encode('utf-8')
-
-            # 3. Kirim bundle
+            
             sender_endpoint.start_transmission(payload_data, 'dtn://gateway/data-receiver')
             
-            last_transmission = get_current_clock_millis()
-
-            display.fill_rect(0, 40, 128, 16, 0)
-            display.text("Sending...", 0, 40, 1) # Memberi feedback saat mengirim
-            display.show()
-
-            sender_endpoint.start_transmission(payload_data, 'dtn://gateway/data-receiver')
-
-            display.fill_rect(90, 20, 38, 8, 0) # Hapus angka sebelumnya saja
+            # Reset waktu dan update display
+            last_transmission_time = get_current_clock_millis()
+            display.fill_rect(90, 20, 38, 8, 0)
             display.text(str(bundle_counter), 90, 20, 1)
-            display.fill_rect(0, 40, 128, 16, 0) # Hapus teks "Sending..."
             display.show()
-            last_transmission = get_current_clock_millis()
+            print(f"Membuat dan mengirim bundle #{bundle_counter}")
 
         time.sleep(0.1)
 
+    # Setelah semua 20 bundle dibuat
+    print("Selesai membuat 20 bundle. Memberi waktu ekstra untuk transfer...")
+    display.text("SENDING DONE", 15, 40, 1)
+    display.show()
+    
+    # Beri waktu 10 detik ekstra agar bundle terakhir pasti terkirim
+    end_time = time.ticks_add(time.ticks_ms(), 10000)
+    while time.ticks_diff(end_time, time.ticks_ms()) > 0:
+        bpa.update()
+        time.sleep(0.1)
+
+    print("Node sekarang diam.")
+    display.text("ALL SENT", 25, 50, 1)
+    display.show()
+
+    while True: # Loop diam
+        bpa.update()
+        time.sleep(1)
+
 except Exception as e:
     print(f"Terjadi error fatal: {e}")
-    # Jika error tetap MemoryError, langkah selanjutnya adalah frozen bytecode.
-
 finally:
     if 'bpa' in locals() and 'sender_endpoint' in locals():
         bpa.unregister_endpoint(sender_endpoint)
