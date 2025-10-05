@@ -76,8 +76,10 @@ try:
     # Setup DTN
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
-    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 3 # Turunkan sedikit untuk lebih hemat memori
-    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 8 # Turunkan sedikit
+    # Beri ruang yang cukup untuk menyimpan semua 100 bundle
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 25
+    # Naikkan juga batas ID yang diketahui untuk keamanan
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 30
 
     clas = {CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}
     storage = SimpleInMemoryStorage()
@@ -98,7 +100,7 @@ try:
     print('Sender LoRa dimulai...')
     while True:
         bpa.update()
-        if bundle_counter < 100 and is_timestamp_older_than_timeout(last_transmission, 5000):
+        if bundle_counter < 20 and is_timestamp_older_than_timeout(last_transmission, 5000):
             bundle_counter += 1
 
             # 1. Catat waktu kirim TEPAT SEBELUM mengirim

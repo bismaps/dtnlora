@@ -64,8 +64,10 @@ try:
     # Setup DTN
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
-    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 3
-    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 8
+    # Beri ruang yang cukup untuk menyimpan semua 100 bundle
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 25 
+    # Naikkan juga batas ID yang diketahui untuk keamanan
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 30
 
     clas = {CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}
     storage = SimpleInMemoryStorage()
@@ -92,7 +94,7 @@ try:
 
         display.fill(0)
         display.text('LORA RECEIVER', 20, 0, 1)
-        display.text('Rx:', 0, 20, 1)
+        display.text('Rx Count:', 0, 20, 1)
         display.text(str(bundle_counter), 40, 20, 1)
         display.text('Message:', 0, 40, 1)
         display.text(last_payload[:16], 0, 50, 1)

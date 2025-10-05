@@ -67,6 +67,7 @@ try:
     from dtn7zero.configuration import CONFIGURATION
     from dtn7zero.storage.simple_in_memory_storage import SimpleInMemoryStorage
     from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
+    from dtn7zero.utility import get_current_clock_millis, is_timestamp_older_than_timeout
     gc.collect()
 
     # Setup DTN (mirip dengan yang lain)
@@ -84,16 +85,24 @@ try:
     # Mobile node tidak membuat atau mengonsumsi data, hanya merutekan.
 
     # Loop utama aplikasi
+    last_display_update = get_current_clock_millis()
     display.text('MOBILE NODE', 20, 0, 1)
-    display.text('Mode: Kurir', 0, 20, 1)
-    display.text('Berjalan...', 0, 40, 1)
+    display.text('Stored:', 0, 20, 1)
     display.show()
     
     print('Mobile Node (Kurir) dimulai...')
     while True:
-        # Cukup panggil bpa.update(). 
-        # Logika store-carry-forward sudah ditangani oleh router.
         bpa.update()
+
+        if is_timestamp_older_than_timeout(last_display_update, 1000):
+            num_bundles_stored = len(storage.bundles)
+
+            display.fill_rect(70, 20, 58, 8, 0)
+            display.text(str(num_bundles_stored), 70, 20, 1)
+            display.show()
+
+            last_display_update = get_current_clock_millis()
+
         time.sleep(0.1)
 
 except Exception as e:
