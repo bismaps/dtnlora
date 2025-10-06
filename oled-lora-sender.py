@@ -93,58 +93,63 @@ try:
     display.text('LORA SENDER', 20, 0, 1)
     display.text('Tx Count:', 0, 20, 1)
     display.show()
-    print('Sender LoRa dimulai dengan metode interval waktu...')
+    print('Sender LoRa dimulai dengan mode siklus berulang...')
 
-    while bundle_counter < 20:
-        # Selalu jalankan update untuk proses latar belakang DTN
-        bpa.update()
+    # --- LOOP UTAMA TAK TERBATAS ---
+    # Loop ini akan terus berjalan, memulai siklus baru setelah selesai.
+    while True:
+        # --- SIKLUS PENGIRIMAN 20 BUNDLE ---
+        bundle_counter = 0
+        last_transmission_time = 0
+        
+        while bundle_counter < 20:
+            bpa.update()
 
-        # Cek apakah sudah waktunya mengirim bundle berikutnya
-        if is_timestamp_older_than_timeout(last_transmission_time, TRANSMISSION_INTERVAL_MS):
-            bundle_counter += 1
-            
-            # 1. Panggil garbage collector SEBELUM membuat objek baru
-            gc.collect()
-            print(f"Memori bebas: {gc.mem_free()} bytes")
+            if is_timestamp_older_than_timeout(last_transmission_time, TRANSMISSION_INTERVAL_MS):
+                bundle_counter += 1
+                
+                gc.collect()
+                print(f"Memori bebas: {gc.mem_free()} bytes")
 
-            # 2. Buat dan kirim bundle baru
-            sending_timestamp_ms = time.ticks_ms()
-            simulated_water_level = 150 + (bundle_counter % 50)
-            payload_data = message_str.format(
-                bundle_counter,
-                sending_timestamp_ms,
-                simulated_water_level
-            ).encode('utf-8')
-            
-            sender_endpoint.start_transmission(payload_data, 'dtn://gateway/data-receiver')
-            
-            # Reset waktu dan update display
-            last_transmission_time = get_current_clock_millis()
-            display.fill_rect(90, 20, 38, 8, 0)
-            display.text(str(bundle_counter), 90, 20, 1)
-            display.show()
-            print(f"Membuat dan mengirim bundle #{bundle_counter}")
+                sending_timestamp_ms = time.ticks_ms()
+                simulated_water_level = 150 + (bundle_counter % 50)
+                payload_data = message_str.format(
+                    bundle_counter,
+                    sending_timestamp_ms,
+                    simulated_water_level
+                ).encode('utf-8')
+                
+                sender_endpoint.start_transmission(payload_data, 'dtn://gateway/data-receiver')
+                
+                last_transmission_time = get_current_clock_millis()
+                display.fill_rect(90, 20, 38, 8, 0)
+                display.text(str(bundle_counter), 90, 20, 1)
+                display.show()
+                print(f"Membuat dan mengirim bundle #{bundle_counter}")
 
-        time.sleep(0.1)
+            time.sleep(0.1)
 
-    # Setelah semua 20 bundle dibuat
-    print("Selesai membuat 20 bundle. Memberi waktu ekstra untuk transfer...")
-    display.text("SENDING DONE", 15, 40, 1)
-    display.show()
-    
-    # Beri waktu 10 detik ekstra agar bundle terakhir pasti terkirim
-    end_time = time.ticks_add(time.ticks_ms(), 10000)
-    while time.ticks_diff(end_time, time.ticks_ms()) > 0:
-        bpa.update()
-        time.sleep(0.1)
+        # --- FASE PEMBERSIHAN SETELAH SIKLUS SELESAI ---
+        print("Siklus pengiriman 20 bundle selesai. Membersihkan memori untuk siklus berikutnya...")
+        display.text("CYCLE DONE", 20, 40, 1)
+        display.show()
+        
+        # Beri waktu 10 detik agar bundle terakhir pasti terkirim
+        end_time = time.ticks_add(time.ticks_ms(), 10000)
+        while time.ticks_diff(end_time, time.ticks_ms()) > 0:
+            bpa.update()
+            time.sleep(0.1)
 
-    print("Node sekarang diam.")
-    display.text("ALL SENT", 25, 50, 1)
-    display.show()
-
-    while True: # Loop diam
-        bpa.update()
-        time.sleep(1)
+        # Hapus semua bundle dari storage untuk memulai dari awal
+        storage.bundles.clear()
+        storage.bundle_ids.clear()
+        gc.collect() # Panggil garbage collector
+        
+        print(f"Memori dibersihkan. Memori bebas: {gc.mem_free()}. Memulai siklus baru dalam 5 detik...")
+        display.fill_rect(0, 40, 128, 18, 0)
+        display.text("NEW CYCLE...", 15, 40, 1)
+        display.show()
+        time.sleep(5) # Jeda sebelum memulai siklus baru
 
 except Exception as e:
     print(f"Terjadi error fatal: {e}")
