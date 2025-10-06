@@ -100,6 +100,9 @@ try:
         if is_timestamp_older_than_timeout(last_display_update, 1000):
             num_bundles_stored = len(storage.bundles)
 
+            # debugging
+            print(f"DEBUG: Jumlah bundle tersimpan = {num_bundles_stored}")
+
             display.fill_rect(70, 20, 58, 8, 0)
             display.text(str(num_bundles_stored), 70, 20, 1)
             display.show()
