@@ -72,7 +72,7 @@ try:
     clas = {CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}
     storage = SimpleInMemoryStorage()
     router = SimpleEpidemicRouter(clas, storage)
-    bpa = BundleProtocolAgent('dtn://gateway/', storage, router)
+    bpa = BundleProtocolAgent('ipn://2', storage, router)
 
     bundle_counter = 0
     last_payload = ""
@@ -100,7 +100,7 @@ try:
         display.text(last_payload[:16], 0, 50, 1)
         display.show()
 
-    receiver_endpoint = LocalEndpoint('data-receiver', receive_callback=receive_callback)
+    receiver_endpoint = LocalEndpoint('1', receive_callback=receive_callback)
     bpa.register_endpoint(receiver_endpoint)
 
     display.text('LORA RECEIVER', 15, 0, 1)

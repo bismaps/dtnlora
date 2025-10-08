@@ -79,8 +79,8 @@ try:
     clas = {CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}
     storage = SimpleInMemoryStorage()
     router = SimpleEpidemicRouter(clas, storage)
-    bpa = BundleProtocolAgent('dtn://fixed-node/', storage, router)
-    sender_endpoint = LocalEndpoint('flood_alert')
+    bpa = BundleProtocolAgent('ipn://1', storage, router)
+    sender_endpoint = LocalEndpoint('0')
     bpa.register_endpoint(sender_endpoint)
 
     # Loop utama dengan jeda waktu dan pembersihan memori
@@ -119,7 +119,7 @@ try:
                     simulated_water_level
                 ).encode('utf-8')
                 
-                sender_endpoint.start_transmission(payload_data, 'dtn://gateway/data-receiver')
+                sender_endpoint.start_transmission(payload_data, 'ipn://2.1')
                 
                 last_transmission_time = get_current_clock_millis()
                 display.fill_rect(90, 20, 38, 8, 0)
