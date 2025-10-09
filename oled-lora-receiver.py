@@ -61,6 +61,21 @@ try:
     from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
     gc.collect()
 
+    # ====================================================================
+    # --- SOLUSI: Buat Class Router Khusus untuk Gateway ---
+    # Class ini mewarisi SimpleEpidemicRouter tetapi menimpa fungsi
+    # forwarding agar tidak melakukan siaran ulang (re-broadcast).
+    class GatewayRouter(SimpleEpidemicRouter):
+        def immediate_forwarding_attempt(self, full_node_uri: str, bundle_information) -> (bool, int):
+            """
+            Versi override dari fungsi forwarding.
+            Fungsi ini tidak melakukan apa-apa dan langsung mengembalikan status "sukses"
+            agar radio LoRa tidak sibuk mengirim ulang dan siap menerima bundel berikutnya.
+            """
+            # Mengembalikan True berarti "forwarding dianggap berhasil"
+            return (True, 0)
+    # ====================================================================
+
     # Setup DTN
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
@@ -71,7 +86,7 @@ try:
 
     clas = {CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}
     storage = SimpleInMemoryStorage()
-    router = SimpleEpidemicRouter(clas, storage)
+    router = GatewayRouter(clas, storage)
     bpa = BundleProtocolAgent('ipn://2', storage, router)
 
     bundle_counter = 0
