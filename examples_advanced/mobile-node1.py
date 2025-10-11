@@ -110,9 +110,15 @@ try:
 
         if is_timestamp_older_than_timeout(last_display_update, 2000):
             try:
+                num_bundles_stored = len(storage.bundles)
+                bat_percent = get_battery_percentage()
+                mode_text = "RX" if is_in_receive_mode else "TX"
+                
                 display.fill(0)
-                display.text(f"Stored: {len(storage.bundles)}", 0, 10)
-                display.text(f"Battery: {get_battery_percentage()}%", 0, 30)
+                display.text("MOBILE NODE", 0, 10)
+                display.text(f"Stored: {num_bundles_stored}", 0, 25)
+                display.text(f"Mode: {mode_text}", 0, 40)
+                display.text(f"Battery: {bat_percent}%", 0, 55)
                 display.show()
                 last_display_update = get_current_clock_millis()
             except OSError as e:
