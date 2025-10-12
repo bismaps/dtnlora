@@ -72,9 +72,7 @@ def main():
     last_display_update = 0
     
     # =================================================================
-    # PERUBAHAN KRUSIAL: Tingkatkan interval pengiriman secara signifikan
-    # Memberi waktu 5 detik bagi sistem untuk pulih sepenuhnya antar pengiriman.
-    TRANSMISSION_INTERVAL_MS = 5000  # Interval aman: 5 detik
+    TRANSMISSION_INTERVAL_MS = 1000  # Interval aman: 1 detik
     DISPLAY_INTERVAL_MS = 1000
     # =================================================================
 
