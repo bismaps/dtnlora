@@ -7,6 +7,7 @@ Untuk dijalankan pada perangkat TTGO LORA32.
 # --- FASE 0: Persiapan Awal ---
 import gc
 import time
+import cbor
 
 # --- FASE 1: Inisialisasi Perangkat Keras ---
 print("Menginisialisasi Perangkat Keras...")
@@ -76,7 +77,7 @@ try:
     bpa.register_endpoint(sender_endpoint)
 
     # --- FASE 3: Loop Utama (Struktur Stabil dengan 2 Timer) ---
-    message_str = 'ID:{};TIME:{};LEVEL:{}'
+    # message_str = 'ID:{};TIME:{};LEVEL:{}'
     bundle_counter = 0
     generation_complete = False
 
@@ -97,16 +98,23 @@ try:
             bundle_counter += 1
             
             sending_timestamp_ms = time.ticks_ms()
-            payload_data = message_str.format(
-                bundle_counter,
-                sending_timestamp_ms,
-                150 + (bundle_counter % 50)
-            ).encode('utf-8')
+            level_air = 150 + (bundle_counter % 50)
+            # payload_data = message_str.format(
+            #     bundle_counter,
+            #     sending_timestamp_ms,
+            #     150 + (bundle_counter % 50)
+            # ).encode('utf-8')
+
+            # Buat list atau tuple
+            data_to_send = [bundle_counter, sending_timestamp_ms, level_air]
+
+            # Enkripsi data menjadi format biner (bytes)
+            payload_data = cbor.dumps(data_to_send)
             
             # Perintah ini akan membuat bundel dan MENYIMPANNYA di 'storage'
             sender_endpoint.start_transmission(payload_data, 'ipn://2.1') 
             
-            print(f"Membuat & menyimpan bundel #{bundle_counter}")
+            print(f"Membuat & menyimpan bundel #{bundle_counter} (Size: {len(payload_data)} bytes)")
             last_transmission_time = get_current_clock_millis()
 
             if bundle_counter >= 20:

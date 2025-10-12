@@ -3,54 +3,61 @@ Skrip ini akan menerima bundle DTN melalui LoRa
 dan menampilkan jumlah bundle yang diterima pada layar OLED.
 Diadaptasi dari contoh oled-espnow-receiver.py.
 Untuk dijalankan pada perangkat TTGO LORA32 (bertindak sebagai gateway).
+Payload diterima dalam format CBOR.
 """
 # --- FASE 0: Persiapan Awal ---
 import gc
 import time
+import cbor
 
-gc.collect()
-print(f"Memori bebas awal: {gc.mem_free()} bytes")
-
-# --- FASE 1: Inisialisasi Hardware (OLED) ---
-print("Menginisialisasi OLED...")
-from machine import Pin, I2C
+# --- FASE 1: Inisialisasi Perangkat Keras ---
+print("Menginisialisasi Perangkat Keras...")
+from machine import Pin, I2C, ADC
 from ssd1306 import SSD1306_I2C
-gc.collect()
-
-WIDTH = 128
-HEIGHT = 64
-rst_pin_oled = Pin(23, Pin.OUT)
-rst_pin_oled.value(0)
-time.sleep_ms(50)
-rst_pin_oled.value(1)
-i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
-display = SSD1306_I2C(WIDTH, HEIGHT, i2c)
-display.fill(0)
-display.show()
-print("OLED OK.")
-del Pin, I2C
-gc.collect()
-
-# --- FASE 2: Inisialisasi Hardware (LoRa) ---
-print("Menginisialisasi LoRa...")
 from dtn7zero.convergence_layer_adapters.rf95_lora import RF95LoRaCLA
 from sx127x import LORA_PARAMETERS_RH_RF95_bw125cr45sf128
 gc.collect()
 
-custom_device_config = {
-    'miso': 19, 'mosi': 27, 'sck': 5, 'ss': 18, 'rst': 23, 'dio_0': 26,
-}
+# --- Fungsi-fungsi pembantu ---
+def get_battery_percentage():
+    try:
+        adc_val = adc.read()
+        v_adc = adc_val / 4095 * 3.6
+        v_bat = v_adc * 2
+        percentage = (v_bat - 3.2) / (4.2 - 3.2) * 100
+        return int(max(0, min(100, percentage)))
+    except Exception:
+        return 0
+
+# --- Inisialisasi ADC ---
+adc = ADC(Pin(35))
+adc.atten(ADC.ATTN_11DB)
+gc.collect()
+
+# --- Inisialisasi OLED ---
+rst_pin_oled = Pin(23, Pin.OUT)
+rst_pin_oled.value(0)
+time.sleep_ms(50)
+rst_pin_oled.value(1)
+i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=100000)
+display = SSD1306_I2C(128, 64, i2c)
+display.fill(0)
+display.show()
+gc.collect()
+print(f"Memori setelah OLED: {gc.mem_free()} bytes")
+
+# --- Inisialisasi LoRa ---
 custom_lora_parameters = LORA_PARAMETERS_RH_RF95_bw125cr45sf128.copy()
 custom_lora_parameters['frequency'] = 915E6
 lora_cla = RF95LoRaCLA(
-    device_config=custom_device_config,
+    device_config={'miso': 19, 'mosi': 27, 'sck': 5, 'ss': 18, 'rst': 23, 'dio_0': 26},
     lora_parameters=custom_lora_parameters
 )
-print("LoRa OK.")
-del LORA_PARAMETERS_RH_RF95_bw125cr45sf128
+del custom_lora_parameters, LORA_PARAMETERS_RH_RF95_bw125cr45sf128
 gc.collect()
+print(f"Memori setelah LoRa: {gc.mem_free()} bytes")
 
-# --- FASE 3: Jalankan Aplikasi DTN ---
+# --- FASE 2: Jalankan Aplikasi DTN ---
 print("Memuat framework DTN...")
 try:
     from py_dtn7 import Bundle
@@ -61,27 +68,14 @@ try:
     from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
     gc.collect()
 
-    # ====================================================================
-    # --- SOLUSI: Buat Class Router Khusus untuk Gateway ---
-    # Class ini mewarisi SimpleEpidemicRouter tetapi menimpa fungsi
-    # forwarding agar tidak melakukan siaran ulang (re-broadcast).
     class GatewayRouter(SimpleEpidemicRouter):
         def immediate_forwarding_attempt(self, full_node_uri: str, bundle_information) -> (bool, int):
-            """
-            Versi override dari fungsi forwarding.
-            Fungsi ini tidak melakukan apa-apa dan langsung mengembalikan status "sukses"
-            agar radio LoRa tidak sibuk mengirim ulang dan siap menerima bundel berikutnya.
-            """
-            # Mengembalikan True berarti "forwarding dianggap berhasil"
             return (True, 0)
-    # ====================================================================
 
     # Setup DTN
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
-    # Beri ruang yang cukup untuk menyimpan semua 100 bundle
     CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 25 
-    # Naikkan juga batas ID yang diketahui untuk keamanan
     CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 30
 
     clas = {CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}
@@ -89,46 +83,61 @@ try:
     router = GatewayRouter(clas, storage)
     bpa = BundleProtocolAgent('ipn://2', storage, router)
 
-    bundle_counter = 0
-    last_payload = ""
+    total_received = 0 # Variabel untuk menghitung total bundle yang diterima
 
+    # ====================================================================
+    # --- FUNGSI CALLBACK DENGAN NAMA VARIABEL YANG KONSISTEN ---
     def receive_callback(bundle: Bundle):
-        global bundle_counter, last_payload
-        bundle_counter += 1
-        payload_text = bundle.payload_block.data.decode('utf-8')
-        last_payload = payload_text
+        global total_received
+        total_received += 1
+        reception_timestamp = time.ticks_ms()
 
-        # --- TAMBAHAN PENTING UNTUK LOGGING ---
-        # Waktu penerimaan bisa didapat dari sistem
-        reception_timestamp = time.ticks_ms() 
+        try:
+            # 1. Dekode payload biner menggunakan cbor.loads()
+            payload_data = cbor.loads(bundle.payload_block.data)
 
-        # Cetak ke konsol serial dalam format CSV
-        # Format: No_Bundle, Payload, Waktu_Terima_ms
-        print(f"LOG,{bundle_counter},{payload_text},{reception_timestamp}")
-        # ----------------------------------------
+            # 2. Ekstrak data dari list dengan nama variabel yang sama seperti di PENGIRIM
+            bundle_counter       = payload_data[0]
+            sending_timestamp_ms = payload_data[1]
+            level_air            = payload_data[2]
 
-        display.fill(0)
-        display.text('LORA RECEIVER', 20, 0, 1)
-        display.text('Rx Count:', 0, 20, 1)
-        display.text(str(bundle_counter), 40, 20, 1)
-        display.text('Message:', 0, 40, 1)
-        display.text(last_payload[:16], 0, 50, 1)
-        display.show()
+            # 3. Cetak log dengan nama yang konsisten
+            print(f"#LOG ID:{bundle_counter}, Level: {level_air}, TX Time: {sending_timestamp_ms}, RX Time: {reception_timestamp}")
+
+            # 4. Tampilkan data di OLED
+            bat_percent = get_battery_percentage()
+            display.fill(0)
+            display.text("NODE GATEWAY", 0, 10)
+            display.text(f"TX: {total_received}", 0, 25)
+            display.text(f"Battery: {bat_percent}%", 0, 40)
+            display.text(f"ID: {bundle_counter} Lvl: {level_air}", 0, 55)
+            display.show()
+
+        except Exception as e:
+            print(f"Error processing bundle payload: {e}")
+            display.fill(0)
+            display.text("PAYLOAD ERROR", 0, 25)
+            display.show()
+            
+    # ====================================================================
 
     receiver_endpoint = LocalEndpoint('1', receive_callback=receive_callback)
     bpa.register_endpoint(receiver_endpoint)
 
-    display.text('LORA RECEIVER', 15, 0, 1)
-    display.text('Waiting...', 0, 30, 1)
+    bat_percent = get_battery_percentage()
+    display.text("NODE GATEWAY", 0, 10)
+    display.text(f"TX: Waiting...", 0, 25)
+    display.text(f"Battery: {bat_percent}%", 0, 40)
     display.show()
     print('Receiver LoRa dimulai, menunggu bundle...')
 
     while True:
         bpa.update()
-        time.sleep(0.1)
+        time.sleep_ms(200)
 
 except Exception as e:
-    print(f"Terjadi error fatal: {e}")
+    import sys
+    sys.print_exception(e)
 finally:
     if 'bpa' in locals() and 'receiver_endpoint' in locals():
         bpa.unregister_endpoint(receiver_endpoint)
