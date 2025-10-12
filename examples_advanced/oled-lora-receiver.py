@@ -1,7 +1,7 @@
 """
-Skrip ini akan menerima bundle DTN melalui LoRa dan menampilkan informasi
-yang diterima pada layar OLED, dengan arsitektur yang stabil untuk
-menghindari crash (abort).
+Versi Produksi oled-lora-receiver.py.
+Stabil untuk penggunaan lapangan dengan arsitektur anti-bottleneck
+untuk memaksimalkan penerimaan bundel.
 """
 # --- FASE 0: Persiapan Awal ---
 import gc
@@ -31,8 +31,7 @@ def receive_callback(bundle: Bundle):
         pending_bundles.append(bundle.payload_block.data)
         new_bundle_received_flag = True
     except IndexError:
-        # Ini terjadi jika antrian penuh. Biarkan saja, bundel akan hilang
-        # tapi sistem tidak akan crash.
+        # Ini terjadi jika antrian penuh. Abaikan saja agar tidak crash.
         pass
 
 # --- Fungsi-fungsi pembantu ---
@@ -46,7 +45,7 @@ def get_battery_percentage(adc_pin):
     except Exception:
         return 0
 
-# --- Fungsi utama program ---
+# --- FUNGSI UTAMA PROGRAM ---
 def main():
     global new_bundle_received_flag
 
@@ -59,7 +58,7 @@ def main():
     rst_pin_oled.value(0)
     time.sleep_ms(50)
     rst_pin_oled.value(1)
-    i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=100000)
+    i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000) # Percepat I2C
     display = SSD1306_I2C(128, 64, i2c)
     
     custom_lora_parameters = LORA_PARAMETERS_RH_RF95_bw125cr45sf128.copy()
@@ -91,11 +90,12 @@ def main():
 
     print('Receiver LoRa dimulai, menunggu bundle...')
 
-    # --- FASE 3: Loop Utama yang Stabil ---
+    # --- FASE 3: Loop Utama yang Stabil dan Efisien ---
     while True:
+        # Tugas 1: Selalu cek BPA secepat mungkin
         bpa.update()
 
-        # Cek jika ada bundel baru di antrian untuk diproses
+        # Tugas 2: Proses antrian bundel jika ada
         if new_bundle_received_flag:
             while len(pending_bundles) > 0:
                 payload_bytes = pending_bundles.popleft()
@@ -103,40 +103,40 @@ def main():
                 
                 try:
                     payload_data = cbor.loads(payload_bytes)
-                    # Simpan data bundel terakhir untuk ditampilkan di OLED
+                    # Simpan data bundel terakhir untuk ditampilkan di OLED nanti
                     last_bundle_data['id'] = payload_data[0]
                     last_bundle_data['level'] = payload_data[2]
                     
+                    # Cetak log (ini cukup cepat)
                     print(f"LOG,{total_received},{payload_data[0]},{payload_data[2]},{payload_data[1]},{time.ticks_ms()}")
 
                 except Exception as e:
                     print(f"Error processing payload: {e}")
             
             new_bundle_received_flag = False
+            gc.collect() # Bersihkan memori setelah memproses antrian
 
-        # Logika untuk memperbarui display setiap 1 detik
+        # Tugas 3: Update display secara berkala (TIDAK setiap menerima bundel)
         if time.ticks_diff(time.ticks_ms(), last_display_update) > 1000:
             bat_percent = get_battery_percentage(adc)
             display.fill(0)
             display.text("NODE GATEWAY", 0, 10)
-            display.text(f"Battery: {bat_percent}%", 0, 40)
-
-            # Tampilkan status berdasarkan apakah sudah pernah menerima bundel atau belum
+            
             if total_received == 0:
                 display.text("RX: Waiting...", 0, 25)
             else:
                 display.text(f"RX: {total_received}", 0, 25)
-                # Tampilkan detail dari bundel terakhir yang berhasil diproses
                 if last_bundle_data:
                     display.text(f"ID: {last_bundle_data['id']} Lvl: {last_bundle_data['level']}", 0, 55)
             
+            display.text(f"Batt: {bat_percent}%", 0, 40) # Pindahkan ke sini untuk konsistensi
             display.show()
             last_display_update = time.ticks_ms()
 
-        time.sleep_ms(50)
+        # Beri jeda sangat singkat agar loop tidak berjalan 100%
+        time.sleep_ms(10)
 
 # --- Blok Eksekusi Utama yang Aman ---
-# Ini akan menangkap error fatal dan mencegah boot loop permanen
 if __name__ == "__main__":
     try:
         main()
