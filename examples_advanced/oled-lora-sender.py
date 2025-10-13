@@ -18,6 +18,30 @@ from dtn7zero.storage.simple_in_memory_storage import SimpleInMemoryStorage
 from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
 from dtn7zero.utility import get_current_clock_millis, is_timestamp_older_than_timeout
 
+# ====================================================================
+# --- SOLUSI: Buat Router Khusus dengan Jeda Kirim (Throttling) ---
+class ThrottledEpidemicRouter(SimpleEpidemicRouter):
+    # Kita perlu referensi ke bpa untuk memanggil update()
+    def __init__(self, clas, storage, bpa_instance):
+        super().__init__(clas, storage)
+        self.bpa = bpa_instance
+
+    def immediate_forwarding_attempt(self, *args, **kwargs):
+        # 1. Panggil fungsi forwarding asli untuk mengirim satu bundel
+        result = super().immediate_forwarding_attempt(*args, **kwargs)
+        
+        # 2. Ganti jeda pasif dengan jeda 'mendengarkan aktif'
+        #    Ini memberi kesempatan pada bpa untuk memproses konfirmasi
+        #    dari gateway.
+        print("Forwarded one bundle, now actively listening for 1s...")
+        end_time = time.ticks_add(time.ticks_ms(), 1000)
+        while time.ticks_diff(end_time, time.ticks_ms()) > 0:
+            self.bpa.update()  # Proses pesan masuk
+            time.sleep_ms(50)  # Jangan membebani CPU
+
+        return result
+# ====================================================================
+
 # --- Fungsi-fungsi pembantu ---
 def get_battery_percentage(adc_pin):
     try:
@@ -57,6 +81,8 @@ def main():
     print("Memuat framework DTN...")
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 50
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 100
     
     storage = SimpleInMemoryStorage()
     router = SimpleEpidemicRouter({CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}, storage)

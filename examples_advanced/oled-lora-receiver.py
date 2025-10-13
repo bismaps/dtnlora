@@ -20,7 +20,7 @@ from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
 import ucollections
 
 # --- Variabel Global untuk komunikasi aman antara callback dan loop utama ---
-pending_bundles = ucollections.deque((), 20, 1)  # Antrian untuk menampung payload mentah
+pending_bundles = ucollections.deque((), 50, 1)  # Antrian untuk menampung payload mentah
 new_bundle_received_flag = False
 
 # --- Callback yang sangat ringan untuk menerima bundel ---
@@ -77,7 +77,9 @@ def main():
 
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
-    
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 50
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 100
+
     storage = SimpleInMemoryStorage()
     router = GatewayRouter({CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}, storage)
     bpa = BundleProtocolAgent('ipn://2', storage, router)
