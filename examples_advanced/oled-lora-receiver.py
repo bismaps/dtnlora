@@ -131,7 +131,7 @@ def main():
                 if last_bundle_data:
                     display.text(f"ID: {last_bundle_data['id']} Lvl: {last_bundle_data['level']}", 0, 55)
             
-            display.text(f"Batt: {bat_percent}%", 0, 40) # Pindahkan ke sini untuk konsistensi
+            display.text(f"Battery: {bat_percent}%", 0, 40) # Pindahkan ke sini untuk konsistensi
             display.show()
             last_display_update = time.ticks_ms()
 

@@ -61,7 +61,7 @@ def main():
 
     storage = SimpleInMemoryStorage(); gc.collect()
     router = SimpleEpidemicRouter({CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}, storage); gc.collect()
-    bpa = BundleProtocolAgent('ipn://3', storage, router); gc.collect()
+    bpa = BundleProtocolAgent('ipn://4', storage, router); gc.collect()
     
     print(">>> Inisialisasi DTN SUKSES <<<")
 
