@@ -260,7 +260,8 @@ if __name__ == '__main__':
     directories_to_deploy = [
         ('dtn7zero', None),
         ('micropython-lib', 'micropython-lib'),
-        ('lib/py-dtn7/py_dtn7', 'lib/py-dtn7')
+        ('lib/py-dtn7/py_dtn7', 'lib/py-dtn7'),
+        ('lib/PyLoRa/sx127x', 'lib/PyLoRa')
     ]
 
     for sources_root, root_cutaway in directories_to_deploy:

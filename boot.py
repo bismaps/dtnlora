@@ -9,14 +9,14 @@ import machine
 # import webrepl
 # import os
 
-try:
-    from wlan import connect, ifconfig
-    connect()
-    print('network config: {}\n'.format(ifconfig()))
-except KeyboardInterrupt:
-    print('interrupt by user...moving on without wlan\n')
-except ImportError:
-    print('lh_lib does not exist...moving on without wlan\n')
+# try:
+#     from wlan import connect, ifconfig
+#     connect()
+#     print('network config: {}\n'.format(ifconfig()))
+# except KeyboardInterrupt:
+#     print('interrupt by user...moving on without wlan\n')
+# except ImportError:
+#     print('lh_lib does not exist...moving on without wlan\n')
 
 
 # os.dupterm(None, 1)  # disable REPL on UART(0)

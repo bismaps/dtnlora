@@ -1,0 +1,17 @@
+pip install esptool
+pip install mpremote
+pip install mpy-cross
+
+!!!!!!!!!!!!!!! CHANGE ACCORDING TO PORT == COM6 !!!!!!!!!!!!!!!
+esptool --chip esp32 --port COM6 erase_flash
+esptool --chip esp32 --port COM6 --baud 460800 write_flash -z 0x1000 ESP32_GENERIC-20240602-v1.23.0.bin
+mpremote connect COM6 fs cp wlan.json :wlan.json
+mpremote connect COM6 fs cp boot.py :boot.py
+mpremote connect COM6 fs cp ssd1306.py :ssd1306.py
+python scripts/esp-deployment.py --port COM6
+mpremote connect COM6 mip install urequests
+mpremote connect COM6 mip install datetime
+
+mpremote connect COM6 fs cp main.py :main.py
+
+XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX

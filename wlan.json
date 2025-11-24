@@ -1,6 +1,6 @@
 {
-    "HOSTNAME": "__INSERT_HOSTNAME__",
+    "HOSTNAME": "node-a",
     "WLAN_CREDENTIALS": {
-        "__INSERT_WIFI_SSID__": "__INSERT_PASSWORD__"
+        "A-18": "Gamara8070724"
     }
 }
