@@ -5,7 +5,7 @@
 import gc
 import time
 import cbor
-import ujson
+import json
 import machine
 import os
 from machine import Pin, I2C, ADC
@@ -74,6 +74,7 @@ def main(test_config):
     lora_params['frequency'] = 915E6
     lora_params['spreading_factor'] = 7
     lora_params['coding_rate'] = 7 
+    lora_params['tx_power_level'] = 17
     
     lora_cla = RF95LoRaCLA(
         device_config={'miso': 19, 'mosi': 27, 'sck': 5, 'ss': 18, 'rst': 23, 'dio_0': 26},
@@ -100,6 +101,8 @@ def main(test_config):
     
     last_send_time = -interval_ms 
     last_display_time = 0
+    cooldown_start_time = 0
+    cooldown_duration_ms = 60000
     
     print(f"Config: {test_config['id']} (Bundles={target_bundles}, Int={test_config['interval_min']}m)")
 
@@ -112,11 +115,9 @@ def main(test_config):
             if time.ticks_diff(current_time, last_send_time) >= interval_ms:
                 bundle_counter += 1
                 
-                # 1. Generate Data Dinamis + Timestamp
                 dynamic_water = 150.0 + (bundle_counter / 1.15 % 15)
                 sender_timestamp = time.ticks_ms()
                 
-                # 2. Payload 3 Key (Lokasi, Sensor, Timestamp)
                 data = {
                     1: PAYLOAD_LOKASI,    
                     2: dynamic_water,     
@@ -124,37 +125,42 @@ def main(test_config):
                 }
                 payload_bytes = cbor.dumps(data)
                 
-                # 3. Kirim ke Gateway (3578251001.1)
                 sender_endpoint.start_transmission(payload_bytes, 'ipn://3578251001.1')
                 
                 print(f"Sent #{bundle_counter}: Val={dynamic_water}, T_Send={sender_timestamp}")
                 last_send_time = current_time
                 gc.collect()
         
-        else:
-            if bundle_counter == target_bundles:
-                print("--- DONE SENDING. IDLE. ---")
+        elif bundle_counter == target_bundles:
+            print("--- DONE SENDING. Starting 60s cooldown for delivery... ---")
+            cooldown_start_time = current_time
+            bundle_counter += 1
+        
+        elif bundle_counter == target_bundles + 1:
+            elapsed_ms = time.ticks_diff(current_time, cooldown_start_time)
+            if elapsed_ms >= cooldown_duration_ms:
+                print("--- COOLDOWN COMPLETE. IDLE. ---")
                 bundle_counter += 1
 
-        # --- TAMPILAN OLED (DIKEMBALIKAN KE FORMAT ASLI) ---
+        # --- TAMPILAN OLED ---
         if time.ticks_diff(current_time, last_display_time) > 1000:
             bat = get_battery_percentage(adc)
             display.fill(0)
-            # Baris 1: ID Skenario
-            display.text(f"SCENARIO 2: {test_config['id']}", 0, 0)
-            # Baris 2: Info LoRa
+            display.text("SOURCE NODE", 0, 0)
             display.text(f"SF:7 CR:4/7", 0, 10)
-            # Baris 3: Progress Pengiriman
-            display.text(f"Sent: {min(bundle_counter, target_bundles)} / {target_bundles}", 0, 25)
+            display.text(f"Test: {test_config['id']}", 0, 22)
+            display.text(f"Sent: {min(bundle_counter, target_bundles)}/{target_bundles}", 0, 34)
             
-            # Baris 4: Status / Interval
-            if bundle_counter > target_bundles:
-                display.text("STATUS: DONE", 0, 40)
+            if bundle_counter > target_bundles + 1:
+                display.text("STATUS: DONE", 0, 46)
+            elif bundle_counter == target_bundles + 1:
+                remaining_ms = cooldown_duration_ms - time.ticks_diff(current_time, cooldown_start_time)
+                remaining_s = max(0, remaining_ms // 1000)
+                display.text(f"Cooldown: {remaining_s}s", 0, 46)
             else:
-                display.text(f"Intv: {test_config['interval_min']}m", 0, 40)
+                display.text(f"Intv: {test_config['interval_min']}m", 0, 46)
                 
-            # Baris 5: Baterai
-            display.text(f"Bat: {bat}%", 0, 54)
+            display.text(f"Bat: {bat}%", 0, 56)
             display.show()
             last_display_time = current_time
         
@@ -162,7 +168,6 @@ def main(test_config):
 
 # --- BOOTSTRAP ---
 if __name__ == "__main__":
-    # Load Config & Prepare Next State
     cfg, idx = get_test_config()
     save_next_test_config(idx)
     

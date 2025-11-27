@@ -125,25 +125,20 @@ def main():
             new_bundle_received_flag = False
             gc.collect()
 
-        # --- TAMPILAN OLED (DIKEMBALIKAN KE FORMAT ASLI) ---
+        # --- TAMPILAN OLED ---
         if time.ticks_diff(time.ticks_ms(), last_display_update) > 1000:
             bat_percent = get_battery_percentage(adc)
             display.fill(0)
-            # Baris 1: Judul
-            display.text("GATEWAY SCEN 2", 0, 0)
-            # Baris 2: Info LoRa
-            display.text("SF:7 CR:4/7", 0, 12)
+            display.text("GATEWAY NODE", 0, 0)
+            display.text("SF:7 CR:4/7", 0, 10)
             
-            # Baris 3: Total Diterima
             if total_received == 0:
-                display.text("RX: Waiting...", 0, 30)
+                display.text("RX: Waiting...", 0, 22)
             else:
-                display.text(f"RX Total: {total_received}", 0, 30)
-                # Baris 4: Nilai Sensor Terakhir
-                display.text(f"Val: {last_bundle_val}", 0, 42)
+                display.text(f"RX: {total_received}", 0, 22)
+                display.text(f"Last: {last_bundle_val}", 0, 34)
             
-            # Baris 5: Baterai
-            display.text(f"Bat: {bat_percent}%", 0, 54)
+            display.text(f"Bat: {bat_percent}%", 0, 56)
             display.show()
             last_display_update = time.ticks_ms()
 
