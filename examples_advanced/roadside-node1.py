@@ -72,8 +72,8 @@ def main():
     print(f"Setting LoRa: SF7 CR4/7 (Scenario 2 Optimized)")
     
     custom_lora_parameters = LORA_PARAMETERS_RH_RF95_bw125cr45sf128.copy()
-    custom_lora_parameters['frequency'] = 915E6
-    custom_lora_parameters['spreading_factor'] = 7
+    custom_lora_parameters['frequency'] = 923E6
+    custom_lora_parameters['spreading_factor'] = 11
     custom_lora_parameters['coding_rate'] = 7
     custom_lora_parameters['tx_power_level'] = 17
     
@@ -111,7 +111,7 @@ def main():
         
         display.fill(0)
         display.text("RELAY NODE 1", 0, 0)
-        display.text("SF:7 CR:4/7", 0, 15)
+        display.text("SF:11 CR:4/7", 0, 15)
         display.text(MY_NODE_EID, 0, 30)
         display.show()
         time.sleep(2)
@@ -126,8 +126,8 @@ def main():
     last_status_update = 0
     last_switch_time = get_current_clock_millis()
     
-    current_rx_duration = random.randint(4000, 6000)
-    current_tx_duration = random.randint(4000, 6000)
+    current_rx_duration = 30000
+    current_tx_duration = 30000
     
     is_in_receive_mode = True
     lora_cla.disable_sending()
@@ -204,14 +204,14 @@ def main():
             is_in_receive_mode = False
             lora_cla.enable_sending()
             last_switch_time = current_time
-            current_tx_duration = random.randint(4000, 6000)
+            current_tx_duration = 30000
             print(f"--- Switch: TX (For {current_tx_duration}ms) ---")
             
         elif not is_in_receive_mode and is_timestamp_older_than_timeout(last_switch_time, current_tx_duration):
             is_in_receive_mode = True
             lora_cla.disable_sending()
             last_switch_time = current_time
-            current_rx_duration = random.randint(4000, 6000)
+            current_rx_duration = 30000
             print(f"--- Switch: RX (For {current_rx_duration}ms) ---")
             gc.collect()
 
@@ -224,7 +224,7 @@ def main():
             if display:
                 display.fill(0)
                 display.text("RELAY NODE 1", 0, 0)
-                display.text(f"SF:7 CR:4/7", 0, 10)
+                display.text(f"SF:11 CR:4/7", 0, 10)
                 display.text(f"RX:{total_bundles_received} Drop:{total_bundles_dropped}", 0, 22)
                 display.text(f"Stored: {num_bundles_stored}/20", 0, 34)
                 display.text(f"Mode: {mode_text}", 0, 46)

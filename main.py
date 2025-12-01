@@ -1,181 +1,157 @@
-# SKENARIO 2: Uji Performa DTN (Fixed Parameter, Variable Load)
-# Hardware: Node Fixed (Sender)
-# Structure: Based on Scenario 1 production code
+# REVISI: Menghapus akses 'source_eid' yang menyebabkan crash.
+# Payload tetap berisi data lokasi, jadi data penelitian aman.
 
 import gc
 import time
 import cbor
-import json
-import machine
+import ujson
 import os
 from machine import Pin, I2C, ADC
 from ssd1306 import SSD1306_I2C
 from dtn7zero.convergence_layer_adapters.rf95_lora import RF95LoRaCLA
 from sx127x import LORA_PARAMETERS_RH_RF95_bw125cr45sf128
+from py_dtn7 import Bundle
 from dtn7zero.bundle_protocol_agent import BundleProtocolAgent
 from dtn7zero.configuration import CONFIGURATION
 from dtn7zero.endpoints import LocalEndpoint
 from dtn7zero.storage.simple_in_memory_storage import SimpleInMemoryStorage
 from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
+import ucollections
 
-# ====================================================================
-# === LOGIKA ROTASI SKENARIO (Traffic Load) ===
-# Variabel Independen: Jumlah Bundle & Interval
-TEST_MATRIX = [
-    {'id': "S2.1", 'bundles': 20, 'interval_min': 1},
-    {'id': "S2.2", 'bundles': 20, 'interval_min': 2},
-    {'id': "S2.3", 'bundles': 30, 'interval_min': 1},
-    {'id': "S2.4", 'bundles': 30, 'interval_min': 2},
-    {'id': "S2.5", 'bundles': 40, 'interval_min': 1},
-    {'id': "S2.6", 'bundles': 40, 'interval_min': 2},
-]
-STATE_FILE = "skenario_state.txt"
+# --- Variabel Global ---
+pending_bundles = ucollections.deque((), 50, 1)
+new_bundle_received_flag = False
 
-def get_test_config():
+# --- Callback (DIPERBAIKI) ---
+def receive_callback(bundle: Bundle):
+    global new_bundle_received_flag
     try:
-        with open(STATE_FILE, 'r') as f:
-            content = f.read()
-            index = int(content) if content else 0
-            index = index % len(TEST_MATRIX)
-    except Exception:
-        index = 0
-    return TEST_MATRIX[index], index
-
-def save_next_test_config(current_index):
-    next_index = (current_index + 1) % len(TEST_MATRIX)
-    try:
-        with open(STATE_FILE, 'w') as f:
-            f.write(str(next_index))
-        print(f"Next Boot Config: Index {next_index}")
+        # PERBAIKAN: Hanya ambil data payload. Jangan ambil source_eid (bikin crash).
+        pending_bundles.append(bundle.payload_block.data)
+        new_bundle_received_flag = True
+    except IndexError:
+        pass
     except Exception as e:
-        print(f"Failed to save state: {e}")
-# ====================================================================
+        print(f"Err CB: {e}")
 
-# --- Helpers ---
+# --- Helper ---
 def get_battery_percentage(adc_pin):
     try:
         adc_val = adc_pin.read()
-        v_bat = (adc_val / 4095 * 3.6) * 2
+        v_adc = adc_val / 4095 * 3.6
+        v_bat = v_adc * 2
         percentage = (v_bat - 3.2) / (4.2 - 3.2) * 100
         return int(max(0, min(100, percentage)))
-    except:
+    except Exception:
         return 0
 
-# --- MAIN PROGRAM ---
-def main(test_config):
-    print("--- SENDER SCENARIO 2 (FINAL) ---")
+# --- FUNGSI UTAMA ---
+def main():
+    global new_bundle_received_flag
+    print("--- GATEWAY SCENARIO 2 (FINAL) ---")
+    
     adc = ADC(Pin(35)); adc.atten(ADC.ATTN_11DB)
     rst = Pin(23, Pin.OUT); rst.value(0); time.sleep_ms(50); rst.value(1)
     i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
     display = SSD1306_I2C(128, 64, i2c)
     
-    # LoRa Init (SF7 CR4/7)
     lora_params = LORA_PARAMETERS_RH_RF95_bw125cr45sf128.copy()
-    lora_params['frequency'] = 915E6
-    lora_params['spreading_factor'] = 7
-    lora_params['coding_rate'] = 7 
+    lora_params['frequency'] = 923E6
+    lora_params['spreading_factor'] = 12
+    lora_params['coding_rate'] = 7
     lora_params['tx_power_level'] = 17
-    
+
     lora_cla = RF95LoRaCLA(
         device_config={'miso': 19, 'mosi': 27, 'sck': 5, 'ss': 18, 'rst': 23, 'dio_0': 26},
         lora_parameters=lora_params
     )
     gc.collect()
 
+    class GatewayRouter(SimpleEpidemicRouter):
+        def immediate_forwarding_attempt(self, *args, **kwargs):
+            return (True, 0)
+
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
-    storage = SimpleInMemoryStorage() 
-    router = SimpleEpidemicRouter({CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}, storage)
-    
-    # ID SENDER (SENSOR): 3578031006
-    bpa = BundleProtocolAgent('ipn://3578031006', storage, router)
-    sender_endpoint = LocalEndpoint('1')
-    bpa.register_endpoint(sender_endpoint)
-    gc.collect()
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 50
+    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 100
 
-    bundle_counter = 0
-    target_bundles = test_config['bundles']
-    interval_ms = test_config['interval_min'] * 60 * 1000
+    storage = SimpleInMemoryStorage()
+    router = GatewayRouter({CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}, storage)
     
-    PAYLOAD_LOKASI = 3578031006
-    
-    last_send_time = -interval_ms 
-    last_display_time = 0
-    cooldown_start_time = 0
-    cooldown_duration_ms = 60000
-    
-    print(f"Config: {test_config['id']} (Bundles={target_bundles}, Int={test_config['interval_min']}m)")
+    # ID GATEWAY: 3578251001
+    bpa = BundleProtocolAgent('ipn://3578251001', storage, router)
+    receiver_endpoint = LocalEndpoint('1', receive_callback=receive_callback)
+    bpa.register_endpoint(receiver_endpoint)
+
+    total_received = 0
+    last_bundle_val = "Waiting"
+    last_display_update = 0
+
+    print('Listening...')
 
     while True:
         bpa.update()
-        current_time = time.ticks_ms()
 
-        # --- LOGIKA PENGIRIMAN ---
-        if bundle_counter < target_bundles:
-            if time.ticks_diff(current_time, last_send_time) >= interval_ms:
-                bundle_counter += 1
-                
-                dynamic_water = 150.0 + (bundle_counter / 1.15 % 15)
-                sender_timestamp = time.ticks_ms()
-                
-                data = {
-                    1: PAYLOAD_LOKASI,    
-                    2: dynamic_water,     
-                    3: sender_timestamp   
-                }
-                payload_bytes = cbor.dumps(data)
-                
-                sender_endpoint.start_transmission(payload_bytes, 'ipn://3578251001.1')
-                
-                print(f"Sent #{bundle_counter}: Val={dynamic_water}, T_Send={sender_timestamp}")
-                last_send_time = current_time
-                gc.collect()
-        
-        elif bundle_counter == target_bundles:
-            print("--- DONE SENDING. Starting 60s cooldown for delivery... ---")
-            cooldown_start_time = current_time
-            bundle_counter += 1
-        
-        elif bundle_counter == target_bundles + 1:
-            elapsed_ms = time.ticks_diff(current_time, cooldown_start_time)
-            if elapsed_ms >= cooldown_duration_ms:
-                print("--- COOLDOWN COMPLETE. IDLE. ---")
-                bundle_counter += 1
+        if new_bundle_received_flag:
+            while len(pending_bundles) > 0:
+                try:
+                    payload_bytes = pending_bundles.popleft()
+                    total_received += 1
+                    
+                    # DECODING
+                    try:
+                        data = cbor.loads(payload_bytes)
+                        
+                        lokasi = data.get(1, 0)
+                        sensor = data.get(2, 0.0)
+                        t_sender = data.get(3, 0)   
+                        t_recv = time.ticks_ms()    
+                        
+                        # Hitung Latency
+                        diff = time.ticks_diff(t_recv, t_sender)
+                        
+                        last_bundle_val = f"{sensor:.1f}"
+                        
+                        # Log ke Terminal
+                        print(f"LOG,{total_received},LoRaNode,{lokasi},{sensor},{t_sender},{t_recv},{diff}")
+                        
+                    except Exception as e_decode:
+                        print(f"LOG_ERR,DecodeFail,{len(payload_bytes)}")
+                        
+                except Exception as e:
+                    print(f"Queue Err: {e}")
+            
+            new_bundle_received_flag = False
+            gc.collect()
 
         # --- TAMPILAN OLED ---
-        if time.ticks_diff(current_time, last_display_time) > 1000:
-            bat = get_battery_percentage(adc)
+        if time.ticks_diff(time.ticks_ms(), last_display_update) > 1000:
+            bat_percent = get_battery_percentage(adc)
             display.fill(0)
-            display.text("SOURCE NODE", 0, 0)
-            display.text(f"SF:7 CR:4/7", 0, 10)
-            display.text(f"Test: {test_config['id']}", 0, 22)
-            display.text(f"Sent: {min(bundle_counter, target_bundles)}/{target_bundles}", 0, 34)
+            display.text("GATEWAY NODE", 0, 0)
+            display.text("SF:7 CR:4/7", 0, 10)
             
-            if bundle_counter > target_bundles + 1:
-                display.text("STATUS: DONE", 0, 46)
-            elif bundle_counter == target_bundles + 1:
-                remaining_ms = cooldown_duration_ms - time.ticks_diff(current_time, cooldown_start_time)
-                remaining_s = max(0, remaining_ms // 1000)
-                display.text(f"Cooldown: {remaining_s}s", 0, 46)
+            if total_received == 0:
+                display.text("RX: Waiting...", 0, 22)
             else:
-                display.text(f"Intv: {test_config['interval_min']}m", 0, 46)
-                
-            display.text(f"Bat: {bat}%", 0, 56)
+                display.text(f"RX: {total_received}", 0, 22)
+                display.text(f"Last: {last_bundle_val}", 0, 34)
+            
+            display.text(f"Bat: {bat_percent}%", 0, 56)
             display.show()
-            last_display_time = current_time
-        
+            last_display_update = time.ticks_ms()
+
         time.sleep_ms(10)
 
-# --- BOOTSTRAP ---
 if __name__ == "__main__":
-    cfg, idx = get_test_config()
-    save_next_test_config(idx)
-    
     try:
-        main(cfg)
+        main()
     except Exception as e:
-        print("CRITICAL ERROR - REBOOTING")
+        print("--- CRITICAL ERROR IN MAIN ---")
         import sys
         sys.print_exception(e)
+        print("Rebooting in 5 seconds...")
         time.sleep(5)
+        import machine
         machine.reset()

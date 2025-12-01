@@ -71,9 +71,9 @@ def main(test_config):
     
     # LoRa Init (SF7 CR4/7)
     lora_params = LORA_PARAMETERS_RH_RF95_bw125cr45sf128.copy()
-    lora_params['frequency'] = 915E6
-    lora_params['spreading_factor'] = 7
-    lora_params['coding_rate'] = 7 
+    lora_params['frequency'] = 923E6
+    lora_params['spreading_factor'] = 11
+    lora_params['coding_rate'] = 7
     lora_params['tx_power_level'] = 17
     
     lora_cla = RF95LoRaCLA(
@@ -95,7 +95,7 @@ def main(test_config):
 
     bundle_counter = 0
     target_bundles = test_config['bundles']
-    interval_ms = test_config['interval_min'] * 60 * 1000
+    interval_ms = test_config['interval_min'] * 30 * 1000
     
     PAYLOAD_LOKASI = 3578031006
     
@@ -147,7 +147,7 @@ def main(test_config):
             bat = get_battery_percentage(adc)
             display.fill(0)
             display.text("SOURCE NODE", 0, 0)
-            display.text(f"SF:7 CR:4/7", 0, 10)
+            display.text(f"SF:11 CR:4/7", 0, 10)
             display.text(f"Test: {test_config['id']}", 0, 22)
             display.text(f"Sent: {min(bundle_counter, target_bundles)}/{target_bundles}", 0, 34)
             

@@ -56,10 +56,10 @@ def main():
     display = SSD1306_I2C(128, 64, i2c)
     
     lora_params = LORA_PARAMETERS_RH_RF95_bw125cr45sf128.copy()
-    lora_params['frequency'] = 915E6
-    lora_params['spreading_factor'] = 7  
-    lora_params['coding_rate'] = 7   
-    lora_params['tx_power_level'] = 17    
+    lora_params['frequency'] = 923E6
+    lora_params['spreading_factor'] = 11
+    lora_params['coding_rate'] = 7
+    lora_params['tx_power_level'] = 17
 
     lora_cla = RF95LoRaCLA(
         device_config={'miso': 19, 'mosi': 27, 'sck': 5, 'ss': 18, 'rst': 23, 'dio_0': 26},
@@ -130,7 +130,7 @@ def main():
             bat_percent = get_battery_percentage(adc)
             display.fill(0)
             display.text("GATEWAY NODE", 0, 0)
-            display.text("SF:7 CR:4/7", 0, 10)
+            display.text("SF:11 CR:4/7", 0, 10)
             
             if total_received == 0:
                 display.text("RX: Waiting...", 0, 22)
