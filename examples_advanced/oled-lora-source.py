@@ -22,12 +22,12 @@ from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
 # === LOGIKA ROTASI SKENARIO (Traffic Load) ===
 # Variabel Independen: Jumlah Bundle & Interval
 TEST_MATRIX = [
-    {'id': "S2.1", 'bundles': 20, 'interval_min': 1},
-    {'id': "S2.2", 'bundles': 20, 'interval_min': 2},
-    {'id': "S2.3", 'bundles': 30, 'interval_min': 1},
-    {'id': "S2.4", 'bundles': 30, 'interval_min': 2},
-    {'id': "S2.5", 'bundles': 40, 'interval_min': 1},
-    {'id': "S2.6", 'bundles': 40, 'interval_min': 2},
+    {'id': "S2.1", 'bundles': 20, 'interval_s': 30},
+    {'id': "S2.2", 'bundles': 20, 'interval_s': 60},
+    {'id': "S2.3", 'bundles': 30, 'interval_s': 30},
+    {'id': "S2.4", 'bundles': 30, 'interval_s': 60},
+    {'id': "S2.5", 'bundles': 40, 'interval_s': 30},
+    {'id': "S2.6", 'bundles': 40, 'interval_s': 60},
 ]
 STATE_FILE = "skenario_state.txt"
 
@@ -95,7 +95,7 @@ def main(test_config):
 
     bundle_counter = 0
     target_bundles = test_config['bundles']
-    interval_ms = test_config['interval_min'] * 30 * 1000
+    interval_ms = test_config['interval_s'] * 1000
     
     PAYLOAD_LOKASI = 3578031006
     
@@ -104,7 +104,7 @@ def main(test_config):
     cooldown_start_time = 0
     cooldown_duration_ms = 60000
     
-    print(f"Config: {test_config['id']} (Bundles={target_bundles}, Int={test_config['interval_min']}m)")
+    print(f"Config: {test_config['id']} (Bundles={target_bundles}, Int={test_config['interval_s']}s)")
 
     while True:
         bpa.update()
@@ -158,7 +158,7 @@ def main(test_config):
                 remaining_s = max(0, remaining_ms // 1000)
                 display.text(f"Cooldown: {remaining_s}s", 0, 46)
             else:
-                display.text(f"Intv: {test_config['interval_min']}m", 0, 46)
+                display.text(f"Intv: {test_config['interval_s']}s", 0, 46)
                 
             display.text(f"Bat: {bat}%", 0, 56)
             display.show()
