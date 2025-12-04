@@ -43,12 +43,34 @@ class ControllableRf95LoRaCLA(RF95LoRaCLA):
 
 # --- Helper Baterai ---
 def get_battery_percentage(adc_pin):
+    try:
+        adc_val = adc_pin.read()
+        v_adc = adc_val / 4095 * 3.6
+        v_bat = v_adc * 2
+        percentage = (v_bat - 3.2) / (4.2 - 3.2) * 100
+        return int(max(0, min(100, percentage)))
+    except Exception:
+        return 0
+
+def get_formatted_time():
+    t = time.localtime()
+    return "{:02d}:{:02d}:{:02d}".format(t[3], t[4], t[5])
+
+# --- FUNGSI UTAMA ---
+def main():
+    # 1. Inisialisasi Hardware
+    print("--- MOBILE NODE SCENARIO 2 ---")
+    print("Menginisialisasi Perangkat Keras...")
+    adc = ADC(Pin(35))
+    adc.atten(ADC.ATTN_11DB)
+    gc.collect()
+
+    # Reset manual LoRa
     lora_reset_pin = Pin(23, Pin.OUT)
     lora_reset_pin.value(0)
     time.sleep_ms(100)
     lora_reset_pin.value(1)
     time.sleep_ms(100)
-
     # 2. Inisialisasi LoRa (STATIS: SF7 CR4/7)
     print(f"Setting LoRa: SF7 CR4/7 (Scenario 2 Optimized)")
     
@@ -85,6 +107,7 @@ def get_battery_percentage(adc_pin):
 
     # 4. Inisialisasi Display
     display = None
+    adc = ADC(Pin(35)); adc.atten(ADC.ATTN_11DB)
     try:
         from ssd1306 import SSD1306_I2C
         i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
@@ -113,10 +136,6 @@ def get_battery_percentage(adc_pin):
     is_in_receive_mode = True
     lora_cla.disable_sending()
     
-    def get_formatted_time():
-        t = time.localtime()
-        return "{:02d}:{:02d}:{:02d}".format(t[3], t[4], t[5])
-
     print(f"[{get_formatted_time()}] Entering Main Loop... Init RX: {current_rx_duration}ms")
     
     while True:
