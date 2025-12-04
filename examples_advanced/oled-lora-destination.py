@@ -38,17 +38,20 @@ def receive_callback(bundle: Bundle):
 def get_battery_percentage(adc_pin):
     try:
         adc_val = adc_pin.read()
-        v_adc = adc_val / 4095 * 3.6
-        v_bat = v_adc * 2
+        v_bat = (adc_val / 4095 * 3.6) * 2
         percentage = (v_bat - 3.2) / (4.2 - 3.2) * 100
         return int(max(0, min(100, percentage)))
     except Exception:
         return 0
 
+def get_formatted_time():
+    t = time.localtime()
+    return "{:02d}:{:02d}:{:02d}".format(t[3], t[4], t[5])
+
 # --- FUNGSI UTAMA ---
 def main():
     global new_bundle_received_flag
-    print("--- GATEWAY SCENARIO 2 (FINAL) ---")
+    print(f"[{get_formatted_time()}] --- GATEWAY SCENARIO 2 (FINAL) ---")
     
     adc = ADC(Pin(35)); adc.atten(ADC.ATTN_11DB)
     rst = Pin(23, Pin.OUT); rst.value(0); time.sleep_ms(50); rst.value(1)
@@ -88,7 +91,7 @@ def main():
     last_bundle_val = "Waiting"
     last_display_update = 0
 
-    print('Listening...')
+    print(f"[{get_formatted_time()}] Listening...")
 
     while True:
         bpa.update()
@@ -105,16 +108,27 @@ def main():
                         
                         lokasi = data.get(1, 0)
                         sensor = data.get(2, 0.0)
-                        t_sender = data.get(3, 0)   
-                        t_recv = time.ticks_ms()    
                         
-                        # Hitung Latency
-                        diff = time.ticks_diff(t_recv, t_sender)
+                        # Timestamp Decoding (Split Fields)
+                        t_sender_sec = data.get(3, 0)
+                        t_sender_ms = data.get(4, 0)
+                        
+                        # Reconstruct Sender Time (String formatting)
+                        t_sender_str = "{}.{:03d}".format(t_sender_sec, t_sender_ms)
+                        
+                        # Receiver Time (Split)
+                        t_recv_sec = time.time()
+                        t_recv_ms = time.ticks_ms() % 1000
+                        t_recv_str = "{}.{:03d}".format(t_recv_sec, t_recv_ms)
+                        
+                        # Calculate Latency (Precise)
+                        diff_ms = ((t_recv_sec - t_sender_sec) * 1000) + (t_recv_ms - t_sender_ms)
+                        diff_str = f"{diff_ms}ms"
                         
                         last_bundle_val = f"{sensor:.1f}"
                         
                         # Log ke Terminal
-                        print(f"LOG,{total_received},LoRaNode,{lokasi},{sensor},{t_sender},{t_recv},{diff}")
+                        print(f"[{get_formatted_time()}] LOG,{total_received},LoRaNode,{lokasi},{sensor},{t_sender_str},{t_recv_str},{diff_str}")
                         
                     except Exception as e_decode:
                         print(f"LOG_ERR,DecodeFail,{len(payload_bytes)}")

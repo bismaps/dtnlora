@@ -61,9 +61,13 @@ def get_battery_percentage(adc_pin):
     except:
         return 0
 
+def get_formatted_time():
+    t = time.localtime()
+    return "{:02d}:{:02d}:{:02d}".format(t[3], t[4], t[5])
+
 # --- MAIN PROGRAM ---
 def main(test_config):
-    print("--- SENDER SCENARIO 2 (FINAL) ---")
+    print(f"[{get_formatted_time()}] --- SENDER SCENARIO 2 (FINAL) ---")
     adc = ADC(Pin(35)); adc.atten(ADC.ATTN_11DB)
     rst = Pin(23, Pin.OUT); rst.value(0); time.sleep_ms(50); rst.value(1)
     i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
@@ -104,7 +108,7 @@ def main(test_config):
     cooldown_start_time = 0
     cooldown_duration_ms = 60000
     
-    print(f"Config: {test_config['id']} (Bundles={target_bundles}, Int={test_config['interval_s']}s)")
+    print(f"[{get_formatted_time()}] Config: {test_config['id']} (Bundles={target_bundles}, Int={test_config['interval_s']}s)")
 
     while True:
         bpa.update()
@@ -116,30 +120,36 @@ def main(test_config):
                 bundle_counter += 1
                 
                 dynamic_water = 150.0 + (bundle_counter / 1.15 % 15)
-                sender_timestamp = time.ticks_ms()
+                
+                # Timestamp with MS precision (Split to avoid Float32 loss)
+                t_sec = time.time()
+                t_ms = time.ticks_ms() % 1000
                 
                 data = {
                     1: PAYLOAD_LOKASI,    
                     2: dynamic_water,     
-                    3: sender_timestamp   
+                    3: t_sec,
+                    4: t_ms
                 }
                 payload_bytes = cbor.dumps(data)
                 
                 sender_endpoint.start_transmission(payload_bytes, 'ipn://3578251001.1')
                 
-                print(f"Sent #{bundle_counter}: Val={dynamic_water}, T_Send={sender_timestamp}")
+                # Reconstruct for display (String formatting to avoid Float32 loss)
+                t_display = "{}.{:03d}".format(t_sec, t_ms)
+                print(f"[{get_formatted_time()}] Sent #{bundle_counter}: Val={dynamic_water}, T_Send={t_display}")
                 last_send_time = current_time
                 gc.collect()
         
         elif bundle_counter == target_bundles:
-            print("--- DONE SENDING. Starting 60s cooldown for delivery... ---")
+            print(f"[{get_formatted_time()}] --- DONE SENDING. Starting 60s cooldown for delivery... ---")
             cooldown_start_time = current_time
             bundle_counter += 1
         
         elif bundle_counter == target_bundles + 1:
             elapsed_ms = time.ticks_diff(current_time, cooldown_start_time)
             if elapsed_ms >= cooldown_duration_ms:
-                print("--- COOLDOWN COMPLETE. IDLE. ---")
+                print(f"[{get_formatted_time()}] --- COOLDOWN COMPLETE. IDLE. ---")
                 bundle_counter += 1
 
         # --- TAMPILAN OLED ---

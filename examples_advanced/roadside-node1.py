@@ -43,25 +43,6 @@ class ControllableRf95LoRaCLA(RF95LoRaCLA):
 
 # --- Helper Baterai ---
 def get_battery_percentage(adc_pin):
-    try:
-        adc_val = adc_pin.read()
-        v_adc = adc_val / 4095 * 3.6
-        v_bat = v_adc * 2
-        percentage = (v_bat - 3.2) / (4.2 - 3.2) * 100
-        return int(max(0, min(100, percentage)))
-    except Exception:
-        return 0
-
-# --- FUNGSI UTAMA ---
-def main():
-    # 1. Inisialisasi Hardware
-    print("--- MOBILE NODE SCENARIO 2 ---")
-    print("Menginisialisasi Perangkat Keras...")
-    adc = ADC(Pin(35))
-    adc.atten(ADC.ATTN_11DB)
-    gc.collect()
-
-    # Reset manual LoRa
     lora_reset_pin = Pin(23, Pin.OUT)
     lora_reset_pin.value(0)
     time.sleep_ms(100)
@@ -132,7 +113,11 @@ def main():
     is_in_receive_mode = True
     lora_cla.disable_sending()
     
-    print(f"Entering Main Loop... Init RX: {current_rx_duration}ms")
+    def get_formatted_time():
+        t = time.localtime()
+        return "{:02d}:{:02d}:{:02d}".format(t[3], t[4], t[5])
+
+    print(f"[{get_formatted_time()}] Entering Main Loop... Init RX: {current_rx_duration}ms")
     
     while True:
         # Aggressive GC to prevent fragmentation
@@ -184,15 +169,19 @@ def main():
         if current_known_ids > prev_known_ids:
             # A new unique bundle arrived
             total_bundles_received += 1
-            t_receive = time.ticks_ms()  # Capture reception timestamp
+            
+            # Timestamp with MS precision (Split to avoid Float32 loss)
+            t_recv_sec = time.time()
+            t_recv_ms = time.ticks_ms() % 1000
+            t_receive_str = "{}.{:03d}".format(t_recv_sec, t_recv_ms)
             
             if current_bundle_count > prev_bundle_count:
                 # Bundle was stored successfully
-                print(f"[RX] Bundle stored (Total RX: {total_bundles_received}, T_Receive: {t_receive}, Stored: {current_bundle_count})")
+                print(f"[{get_formatted_time()}] [RX] Bundle stored (Total RX: {total_bundles_received}, T_Receive: {t_receive_str}, Stored: {current_bundle_count})")
             else:
                 # Bundle was dropped (storage full)
                 total_bundles_dropped += 1
-                print(f"[DROP] Bundle dropped! (Total RX: {total_bundles_received}, T_Receive: {t_receive}, Dropped: {total_bundles_dropped}, Stored: {current_bundle_count})")
+                print(f"[{get_formatted_time()}] [DROP] Bundle dropped! (Total RX: {total_bundles_received}, T_Receive: {t_receive_str}, Dropped: {total_bundles_dropped}, Stored: {current_bundle_count})")
             
             # Defragment heap immediately after processing bundle
             gc.collect()
@@ -205,14 +194,14 @@ def main():
             lora_cla.enable_sending()
             last_switch_time = current_time
             current_tx_duration = 30000
-            print(f"--- Switch: TX (For {current_tx_duration}ms) ---")
+            print(f"[{get_formatted_time()}] --- Switch: TX (For {current_tx_duration}ms) ---")
             
         elif not is_in_receive_mode and is_timestamp_older_than_timeout(last_switch_time, current_tx_duration):
             is_in_receive_mode = True
             lora_cla.disable_sending()
             last_switch_time = current_time
             current_rx_duration = 30000
-            print(f"--- Switch: RX (For {current_rx_duration}ms) ---")
+            print(f"[{get_formatted_time()}] --- Switch: RX (For {current_rx_duration}ms) ---")
             gc.collect()
 
         # --- Logika Update Display ---

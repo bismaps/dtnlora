@@ -1,250 +1,181 @@
-# mobile-node-new.py
-# SKENARIO 2: Relay Bergerak (Store-Carry-Forward)
-# Hardware: Node Mobile (Relay)
-# Structure: Strict adaptation of 'mobile-node1.py' (Scenario 1)
-# Changes: Static LoRa (SF7 CR4/7), Removed Config Rotation
+# SKENARIO 2: Uji Performa DTN (Fixed Parameter, Variable Load)
+# Hardware: Node Fixed (Sender)
+# Structure: Based on Scenario 1 production code
 
 import gc
 import time
-import ujson
-import os
+import cbor
+import json
 import machine
-import random # ADDED: For Randomized TDD
+import os
 from machine import Pin, I2C, ADC
+from ssd1306 import SSD1306_I2C
 from dtn7zero.convergence_layer_adapters.rf95_lora import RF95LoRaCLA
 from sx127x import LORA_PARAMETERS_RH_RF95_bw125cr45sf128
 from dtn7zero.bundle_protocol_agent import BundleProtocolAgent
 from dtn7zero.configuration import CONFIGURATION
+from dtn7zero.endpoints import LocalEndpoint
 from dtn7zero.storage.simple_in_memory_storage import SimpleInMemoryStorage
 from dtn7zero.routers.simple_epidemic_router import SimpleEpidemicRouter
-from dtn7zero.utility import get_current_clock_millis, is_timestamp_older_than_timeout
 
 # ====================================================================
-# === KONFIGURASI NODE (UBAH INI UNTUK NODE 1 / NODE 2) ===
-MY_NODE_EID = 'ipn://3500000002'
+# === LOGIKA ROTASI SKENARIO (Traffic Load) ===
+# Variabel Independen: Jumlah Bundle & Interval
+TEST_MATRIX = [
+    {'id': "S2.1", 'bundles': 20, 'interval_s': 30},
+    {'id': "S2.2", 'bundles': 20, 'interval_s': 60},
+    {'id': "S2.3", 'bundles': 30, 'interval_s': 30},
+    {'id': "S2.4", 'bundles': 30, 'interval_s': 60},
+    {'id': "S2.5", 'bundles': 40, 'interval_s': 30},
+    {'id': "S2.6", 'bundles': 40, 'interval_s': 60},
+]
+STATE_FILE = "skenario_state.txt"
+
+def get_test_config():
+    try:
+        with open(STATE_FILE, 'r') as f:
+            content = f.read()
+            index = int(content) if content else 0
+            index = index % len(TEST_MATRIX)
+    except Exception:
+        index = 0
+    return TEST_MATRIX[index], index
+
+def save_next_test_config(current_index):
+    next_index = (current_index + 1) % len(TEST_MATRIX)
+    try:
+        with open(STATE_FILE, 'w') as f:
+            f.write(str(next_index))
+        print(f"Next Boot Config: Index {next_index}")
+    except Exception as e:
+        print(f"Failed to save state: {e}")
 # ====================================================================
 
-# --- Kelas Helper: Controllable CLA ---
-class ControllableRf95LoRaCLA(RF95LoRaCLA):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.sending_enabled = True
-    
-    def enable_sending(self): 
-        self.sending_enabled = True
-        
-    def disable_sending(self): 
-        self.sending_enabled = False
-        
-    def send_to(self, node, bundle_bytes):
-        if not self.sending_enabled: 
-            return False
-        return super().send_to(node, bundle_bytes)
-
-# --- Helper Baterai ---
+# --- Helpers ---
 def get_battery_percentage(adc_pin):
     try:
         adc_val = adc_pin.read()
-        v_adc = adc_val / 4095 * 3.6
-        v_bat = v_adc * 2
+        v_bat = (adc_val / 4095 * 3.6) * 2
         percentage = (v_bat - 3.2) / (4.2 - 3.2) * 100
         return int(max(0, min(100, percentage)))
-    except Exception:
+    except:
         return 0
 
-# --- FUNGSI UTAMA ---
-def main():
-    # 1. Inisialisasi Hardware
-    print("--- MOBILE NODE SCENARIO 2 ---")
-    print("Menginisialisasi Perangkat Keras...")
-    adc = ADC(Pin(35))
-    adc.atten(ADC.ATTN_11DB)
-    gc.collect()
-
-    # Reset manual LoRa
-    lora_reset_pin = Pin(23, Pin.OUT)
-    lora_reset_pin.value(0)
-    time.sleep_ms(100)
-    lora_reset_pin.value(1)
-    time.sleep_ms(100)
-
-    # 2. Inisialisasi LoRa (STATIS: SF7 CR4/7)
-    print(f"Setting LoRa: SF7 CR4/7 (Scenario 2 Optimized)")
+# --- MAIN PROGRAM ---
+def main(test_config):
+    print("--- SENDER SCENARIO 2 (FINAL) ---")
+    adc = ADC(Pin(35)); adc.atten(ADC.ATTN_11DB)
+    rst = Pin(23, Pin.OUT); rst.value(0); time.sleep_ms(50); rst.value(1)
+    i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
+    display = SSD1306_I2C(128, 64, i2c)
     
-    custom_lora_parameters = LORA_PARAMETERS_RH_RF95_bw125cr45sf128.copy()
-    custom_lora_parameters['frequency'] = 923E6
-    custom_lora_parameters['spreading_factor'] = 11
-    custom_lora_parameters['coding_rate'] = 7
-    custom_lora_parameters['tx_power_level'] = 17
+    # LoRa Init (SF7 CR4/7)
+    lora_params = LORA_PARAMETERS_RH_RF95_bw125cr45sf128.copy()
+    lora_params['frequency'] = 923E6
+    lora_params['spreading_factor'] = 11
+    lora_params['coding_rate'] = 7
+    lora_params['tx_power_level'] = 17
     
-    lora_cla = ControllableRf95LoRaCLA(
-        device_config={'miso': 19, 'mosi': 27, 'sck': 5, 'ss': 18, 'rst': lora_reset_pin, 'dio_0': 26},
-        lora_parameters=custom_lora_parameters
+    lora_cla = RF95LoRaCLA(
+        device_config={'miso': 19, 'mosi': 27, 'sck': 5, 'ss': 18, 'rst': 23, 'dio_0': 26},
+        lora_parameters=lora_params
     )
-    
-    del custom_lora_parameters
     gc.collect()
 
-    # 3. Inisialisasi DTN
-    print("Memuat framework DTN...")
     CONFIGURATION.IPND.ENABLED = False
     CONFIGURATION.MICROPYTHON_CHECK_WIFI = False
-    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_STORED_BUNDLES = 20
-    CONFIGURATION.SIMPLE_IN_MEMORY_STORAGE_MAX_KNOWN_BUNDLE_IDS = 50
-    
-    storage = SimpleInMemoryStorage()
-    gc.collect()
-    
+    storage = SimpleInMemoryStorage() 
     router = SimpleEpidemicRouter({CONFIGURATION.IPND.IDENTIFIER_RF95_LORA: lora_cla}, storage)
+    
+    # ID SENDER (SENSOR): 3578031006
+    bpa = BundleProtocolAgent('ipn://3578031006', storage, router)
+    sender_endpoint = LocalEndpoint('1')
+    bpa.register_endpoint(sender_endpoint)
     gc.collect()
-    
-    bpa = BundleProtocolAgent(MY_NODE_EID, storage, router)
-    gc.collect()
-    print(f">>> DTN READY: {MY_NODE_EID} <<<")
 
-    # 4. Inisialisasi Display
-    display = None
-    try:
-        from ssd1306 import SSD1306_I2C
-        i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
-        display = SSD1306_I2C(128, 64, i2c)
-        
-        display.fill(0)
-        display.text("RELAY NODE 2", 0, 0)
-        display.text("SF:11 CR:4/7", 0, 15)
-        display.text(MY_NODE_EID, 0, 30)
-        display.show()
-        time.sleep(2)
-    except Exception as e:
-        print(f"Display Error: {e}")
+    bundle_counter = 0
+    target_bundles = test_config['bundles']
+    interval_ms = test_config['interval_s'] * 1000
+    
+    PAYLOAD_LOKASI = 3578031006
+    
+    last_send_time = -interval_ms 
+    last_display_time = 0
+    cooldown_start_time = 0
+    cooldown_duration_ms = 60000
+    
+    print(f"Config: {test_config['id']} (Bundles={target_bundles}, Int={test_config['interval_s']}s)")
 
-    # 5. Tracking Variables
-    total_bundles_received = 0
-    total_bundles_dropped = 0
-
-    # 6. Loop Utama (RX/TX Switching)
-    last_status_update = 0
-    last_switch_time = get_current_clock_millis()
-    
-    current_rx_duration = 30000
-    current_tx_duration = 30000
-    
-    is_in_receive_mode = False
-    lora_cla.enable_sending()
-    
-    print(f"Entering Main Loop... Init TX: {current_tx_duration}ms")
-    
     while True:
-        # Aggressive GC to prevent fragmentation
-        gc.collect()
-        
-        # --- Track Bundle Reception & Drops ---
-        prev_known_ids = len(storage.bundle_ids)
-        prev_bundle_count = len(storage.bundles)
-        
-        try:
-            bpa.update()
-        except MemoryError as e:
-            current_stored = len(storage.bundles)
-            try: free_ram = gc.mem_free()
-            except: free_ram = 0
-            
-            print(f"\n[CRITICAL LOG] OUT OF MEMORY REACHED!")
-            print(f"[CRITICAL LOG] Limit Bundle: {current_stored}")
-            print(f"[CRITICAL LOG] Total RX: {total_bundles_received}, Dropped: {total_bundles_dropped}")
-            print(f"[CRITICAL LOG] Sisa RAM: {free_ram} bytes")
-            
-            print("\n--- SYSTEM TRACEBACK DETAIL ---")
-            import sys
-            sys.print_exception(e)
-            print("-------------------------------")
+        bpa.update()
+        current_time = time.ticks_ms()
 
-            if display:
-                display.fill(0)
-                display.text("!!! OOM CRASH !!!", 0, 20)
-                display.text(f"Limit: {current_stored}", 0, 35)
-                display.text("See REPL Log...", 0, 50)
-                display.show()
-            
-            print("[CRITICAL LOG] System will RESET in 5 seconds...")
-            time.sleep(5)
-            machine.reset()
-            
-        except Exception as e:
-            print(f"\n[ERROR LAIN] {e}")
-            import sys
-            sys.print_exception(e)
-            time.sleep(5)
-            machine.reset()
-        
-        # Check if a NEW bundle was received
-        current_known_ids = len(storage.bundle_ids)
-        current_bundle_count = len(storage.bundles)
-        
-        if current_known_ids > prev_known_ids:
-            # A new unique bundle arrived
-            total_bundles_received += 1
-            t_receive = time.ticks_ms()  # Capture reception timestamp
-            
-            if current_bundle_count > prev_bundle_count:
-                # Bundle was stored successfully
-                print(f"[RX] Bundle stored (Total RX: {total_bundles_received}, T_Receive: {t_receive}, Stored: {current_bundle_count})")
-            else:
-                # Bundle was dropped (storage full)
-                total_bundles_dropped += 1
-                print(f"[DROP] Bundle dropped! (Total RX: {total_bundles_received}, T_Receive: {t_receive}, Dropped: {total_bundles_dropped}, Stored: {current_bundle_count})")
-            
-            # Defragment heap immediately after processing bundle
-            gc.collect()
-
-        current_time = get_current_clock_millis()
-        
-        # --- Logika Switching RX / TX ---
-        if not is_in_receive_mode and is_timestamp_older_than_timeout(last_switch_time, current_tx_duration):
-            # Sedang TX, waktunya habis → ganti ke RX
-            is_in_receive_mode = True
-            lora_cla.disable_sending()   # Matikan TX
-            last_switch_time = current_time
-            print(f"--- Switch: RX (For {current_rx_duration}ms) ---")
-            gc.collect()
-
-        elif is_in_receive_mode and is_timestamp_older_than_timeout(last_switch_time, current_rx_duration):
-            # Sedang RX, waktunya habis → ganti ke TX
-            is_in_receive_mode = False
-            lora_cla.enable_sending()    # Nyalakan TX
-            last_switch_time = current_time
-            print(f"--- Switch: TX (For {current_tx_duration}ms) ---")
-
-        # --- Logika Update Display ---
-        if is_timestamp_older_than_timeout(last_status_update, 1000):
-            num_bundles_stored = len(storage.bundles)
-            mode_text = "RX" if is_in_receive_mode else "TX"
-            bat_percent = get_battery_percentage(adc)
-
-            if display:
-                display.fill(0)
-                display.text("RELAY NODE 2", 0, 0)
-                display.text(f"SF:11 CR:4/7", 0, 10)
-                display.text(f"RX:{total_bundles_received} Drop:{total_bundles_dropped}", 0, 22)
-                display.text(f"Stored: {num_bundles_stored}/20", 0, 34)
-                display.text(f"Mode: {mode_text}", 0, 46)
-                display.text(f"Bat: {bat_percent}%", 0, 56)
-                display.show()
-            else:
-                print(f"Status: {mode_text}, RX:{total_bundles_received}, Drop:{total_bundles_dropped}, Stored: {num_bundles_stored}")
+        # --- LOGIKA PENGIRIMAN ---
+        if bundle_counter < target_bundles:
+            if time.ticks_diff(current_time, last_send_time) >= interval_ms:
+                bundle_counter += 1
                 
-            last_status_update = current_time
+                dynamic_water = 150.0 + (bundle_counter / 1.15 % 15)
+                sender_timestamp = time.ticks_ms()
+                
+                data = {
+                    1: PAYLOAD_LOKASI,    
+                    2: dynamic_water,     
+                    3: sender_timestamp   
+                }
+                payload_bytes = cbor.dumps(data)
+                
+                sender_endpoint.start_transmission(payload_bytes, 'ipn://3578251001.1')
+                
+                print(f"Sent #{bundle_counter}: Val={dynamic_water}, T_Send={sender_timestamp}")
+                last_send_time = current_time
+                gc.collect()
+        
+        elif bundle_counter == target_bundles:
+            print("--- DONE SENDING. Starting 60s cooldown for delivery... ---")
+            cooldown_start_time = current_time
+            bundle_counter += 1
+        
+        elif bundle_counter == target_bundles + 1:
+            elapsed_ms = time.ticks_diff(current_time, cooldown_start_time)
+            if elapsed_ms >= cooldown_duration_ms:
+                print("--- COOLDOWN COMPLETE. IDLE. ---")
+                bundle_counter += 1
+
+        # --- TAMPILAN OLED ---
+        if time.ticks_diff(current_time, last_display_time) > 1000:
+            bat = get_battery_percentage(adc)
+            display.fill(0)
+            display.text("SOURCE NODE", 0, 0)
+            display.text(f"SF:11 CR:4/7", 0, 10)
+            display.text(f"Test: {test_config['id']}", 0, 22)
+            display.text(f"Sent: {min(bundle_counter, target_bundles)}/{target_bundles}", 0, 34)
             
+            if bundle_counter > target_bundles + 1:
+                display.text("STATUS: DONE", 0, 46)
+            elif bundle_counter == target_bundles + 1:
+                remaining_ms = cooldown_duration_ms - time.ticks_diff(current_time, cooldown_start_time)
+                remaining_s = max(0, remaining_ms // 1000)
+                display.text(f"Cooldown: {remaining_s}s", 0, 46)
+            else:
+                display.text(f"Intv: {test_config['interval_s']}s", 0, 46)
+                
+            display.text(f"Bat: {bat}%", 0, 56)
+            display.show()
+            last_display_time = current_time
+        
         time.sleep_ms(10)
 
-# --- Blok Eksekusi ---
+# --- BOOTSTRAP ---
 if __name__ == "__main__":
+    cfg, idx = get_test_config()
+    save_next_test_config(idx)
+    
     try:
-        main()
+        main(cfg)
     except Exception as e:
-        print("--- CRITICAL ERROR IN MAIN ---")
+        print("CRITICAL ERROR - REBOOTING")
         import sys
         sys.print_exception(e)
-        print("Rebooting in 5 seconds...")
         time.sleep(5)
         machine.reset()
